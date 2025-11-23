@@ -101,42 +101,56 @@ class TradingStrategy:
             self.df.rename(columns={'Random Forest': 'RF_prediction', 'Next Price': 'RF_actual'}, inplace=True)
     
     def _check_ml_bullish(self, row, prev_close):
-        """Check if ML models predict bullish movement"""
-        signals = 0
-        total = 0
+        """Check if ML models predict bullish movement for next day"""
+        lstm_bullish = False
+        rf_bullish = False
+        models_available = 0
         
-        # LSTM prediction (SMA50_diff)
+        # LSTM prediction (next day's SMA50_diff)
         if pd.notna(row.get('LSTM_prediction')):
-            total += 1
-            if row['LSTM_prediction'] > 0:  # Positive SMA50_diff means bullish
-                signals += 1
+            models_available += 1
+            if row['LSTM_prediction'] > 0:  # Positive next-day SMA50_diff means bullish
+                lstm_bullish = True
         
-        # Random Forest prediction
+        # Random Forest prediction (next day's price)
         if pd.notna(row.get('RF_prediction')):
-            total += 1
-            if row['RF_prediction'] > prev_close:  # Predicts higher price
-                signals += 1
+            models_available += 1
+            if row['RF_prediction'] > prev_close:  # Predicts higher next-day price
+                rf_bullish = True
         
-        return signals, total
+        # Require BOTH available models to agree
+        if models_available == 2:
+            return lstm_bullish and rf_bullish
+        elif models_available == 1:
+            return lstm_bullish or rf_bullish
+        else:
+            return False
     
     def _check_ml_bearish(self, row, current_price):
-        """Check if ML models predict bearish movement"""
-        signals = 0
-        total = 0
+        """Check if ML models predict bearish movement for next day"""
+        lstm_bearish = False
+        rf_bearish = False
+        models_available = 0
         
-        # LSTM prediction
+        # LSTM prediction (next day's SMA50_diff)
         if pd.notna(row.get('LSTM_prediction')):
-            total += 1
-            if row['LSTM_prediction'] < 0:  # Negative SMA50_diff means bearish
-                signals += 1
+            models_available += 1
+            if row['LSTM_prediction'] < 0:  # Negative next-day SMA50_diff means bearish
+                lstm_bearish = True
         
-        # Random Forest prediction
+        # Random Forest prediction (next day's price)
         if pd.notna(row.get('RF_prediction')):
-            total += 1
-            if row['RF_prediction'] < current_price:  # Predicts lower price
-                signals += 1
+            models_available += 1
+            if row['RF_prediction'] < current_price:  # Predicts lower next-day price
+                rf_bearish = True
         
-        return signals, total
+        # Require BOTH available models to agree
+        if models_available == 2:
+            return lstm_bearish and rf_bearish
+        elif models_available == 1:
+            return lstm_bearish or rf_bearish
+        else:
+            return False
     
     def check_entry_signals(self, row, prev_row):
         """Check for entry signals - to be overridden by subclasses"""
@@ -309,7 +323,7 @@ class ConservativeStrategy(TradingStrategy):
         1. Trend: Price > 200-day SMA and Price > 50-day SMA
         2. MACD: crosses below zero first, then crosses above signal with positive histogram
         3. Oversold: RSI < 40 or price touches lower Bollinger Band
-        4. ML: predicts price increase
+        4. ML: predicts next-day price increase
         """
         signals = []
         
@@ -336,9 +350,8 @@ class ConservativeStrategy(TradingStrategy):
         elif pd.notna(row['BB_lower']) and row['Close'] <= row['BB_lower'] * 1.01:  # Within 1% of lower band
             signals.append('BB_oversold')
         
-        # 4. ML confirmation
-        ml_bullish, ml_total = self._check_ml_bullish(row, prev_row['Close'])
-        if ml_total > 0 and ml_bullish >= ml_total * 0.5:  # At least 50% of ML models agree
+        # 4. ML confirmation (both models must agree)
+        if self._check_ml_bullish(row, prev_row['Close']):
             signals.append('ML_bullish')
         
         # Conservative: Need at least 3 signals including ML
@@ -349,26 +362,35 @@ class ConservativeStrategy(TradingStrategy):
     
     def check_exit_signals(self, row, prev_row):
         """
-        Conservative Exit:
-        1. Take profits: RSI > 70 and price hits upper BB
-        2. MACD bearish crossover
-        3. ML predicts decrease
+        Conservative Exit: Require at least 3 indicators + ML confirmation
+        1. Overbought: RSI > 70
+        2. Upper BB: price hits upper Bollinger Band
+        3. MACD bearish crossover
+        4. ML predicts next-day decrease (both models must agree)
         """
-        # 1. Take profit on overbought
-        if (pd.notna(row['RSI']) and row['RSI'] > 70 and 
-            pd.notna(row['BB_upper']) and row['Close'] >= row['BB_upper'] * 0.99):
-            return True, "Take Profit (RSI>70 + BB_upper)"
+        signals = []
         
-        # 2. MACD bearish crossover
+        # 1. Overbought RSI
+        if pd.notna(row['RSI']) and row['RSI'] > 70:
+            signals.append('RSI_overbought')
+        
+        # 2. Upper Bollinger Band
+        if pd.notna(row['BB_upper']) and row['Close'] >= row['BB_upper'] * 0.99:
+            signals.append('BB_upper')
+        
+        # 3. MACD bearish crossover
         if (pd.notna(prev_row['MACD']) and pd.notna(row['MACD']) and 
             pd.notna(prev_row['MACD_signal']) and pd.notna(row['MACD_signal'])):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
-                return True, "MACD Bearish Crossover"
+                signals.append('MACD_bearish')
         
-        # 3. ML bearish signal
-        ml_bearish, ml_total = self._check_ml_bearish(row, row['Close'])
-        if ml_total > 0 and ml_bearish >= ml_total * 0.5:
-            return True, "ML Bearish Signal"
+        # 4. ML bearish signal (both models must agree)
+        if self._check_ml_bearish(row, row['Close']):
+            signals.append('ML_bearish')
+        
+        # Conservative: Need at least 3 signals including ML
+        if len(signals) >= 3 and 'ML_bearish' in signals:
+            return True, f"Conservative Exit: {', '.join(signals)}"
         
         return False, ""
 
@@ -411,9 +433,8 @@ class AggressiveStrategy(TradingStrategy):
         elif pd.notna(row['BB_lower']) and row['Close'] <= row['BB_lower'] * 1.02:
             signals.append('BB_oversold')
         
-        # 4. ML confirmation
-        ml_bullish, ml_total = self._check_ml_bullish(row, prev_row['Close'])
-        if ml_total > 0 and ml_bullish >= ml_total * 0.5:
+        # 4. ML confirmation (both models must agree)
+        if self._check_ml_bullish(row, prev_row['Close']):
             signals.append('ML_bullish')
         
         # Aggressive: Need at least 2 signals including ML
@@ -424,30 +445,35 @@ class AggressiveStrategy(TradingStrategy):
     
     def check_exit_signals(self, row, prev_row):
         """
-        Aggressive Exit:
-        1. RSI > 70
+        Aggressive Exit: Require at least 2 indicators + ML confirmation
+        1. RSI > 70 (overbought)
         2. MACD bearish crossover
         3. Price closes below middle Bollinger Band
-        4. ML predicts decrease
+        4. ML predicts next-day decrease (both models must agree)
         """
-        # 1. Overbought
+        signals = []
+        
+        # 1. Overbought RSI
         if pd.notna(row['RSI']) and row['RSI'] > 70:
-            return True, "Take Profit (RSI>70)"
+            signals.append('RSI_overbought')
         
         # 2. MACD bearish crossover
         if (pd.notna(prev_row['MACD']) and pd.notna(row['MACD']) and 
             pd.notna(prev_row['MACD_signal']) and pd.notna(row['MACD_signal'])):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
-                return True, "MACD Bearish Crossover"
+                signals.append('MACD_bearish')
         
         # 3. Price below middle BB
         if pd.notna(row['BB_middle']) and row['Close'] < row['BB_middle']:
-            return True, "Price Below BB Middle"
+            signals.append('BB_middle')
         
-        # 4. ML bearish signal
-        ml_bearish, ml_total = self._check_ml_bearish(row, row['Close'])
-        if ml_total > 0 and ml_bearish >= ml_total * 0.5:
-            return True, "ML Bearish Signal"
+        # 4. ML bearish signal (both models must agree)
+        if self._check_ml_bearish(row, row['Close']):
+            signals.append('ML_bearish')
+        
+        # Aggressive: Need at least 2 signals including ML
+        if len(signals) >= 2 and 'ML_bearish' in signals:
+            return True, f"Aggressive Exit: {', '.join(signals)}"
         
         return False, ""
 
