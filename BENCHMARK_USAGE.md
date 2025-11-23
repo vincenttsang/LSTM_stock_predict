@@ -150,6 +150,8 @@ conda run -n trading python benchmark.py \
 
 # 3. 查看對比結果
 cat trading_results/benchmark_comparison_2800.HK.csv
+
+conda run -n trading python compare_portfolio_aggregated.py --tickers 0005.HK 0002.HK 3690.HK 0288.HK 2318.HK --capital-per-stock 20000
 ```
 
 ## 結果解讀
