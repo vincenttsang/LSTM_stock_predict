@@ -448,7 +448,7 @@ class AggressiveStrategy(TradingStrategy):
         Aggressive Exit: Require at least 2 indicators + ML confirmation
         1. RSI > 70 (overbought)
         2. MACD bearish crossover
-        3. Price closes below middle Bollinger Band
+        3. Price closes below lower Bollinger Band
         4. ML predicts next-day decrease (both models must agree)
         """
         signals = []
@@ -463,9 +463,9 @@ class AggressiveStrategy(TradingStrategy):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
                 signals.append('MACD_bearish')
         
-        # 3. Price below middle BB
-        if pd.notna(row['BB_middle']) and row['Close'] < row['BB_middle']:
-            signals.append('BB_middle')
+        # 3. Price below lower BB
+        if pd.notna(row['BB_lower']) and row['Close'] < row['BB_lower']:
+            signals.append('BB_lower')
         
         # 4. ML bearish signal (both models must agree)
         if self._check_ml_bearish(row, row['Close']):

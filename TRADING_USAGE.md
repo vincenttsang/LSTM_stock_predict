@@ -143,7 +143,7 @@ trading_results/
 **Exit Conditions:**
 - RSI > 70
 - MACD bearish crossover
-- Price closes below middle Bollinger Band
+- Price closes below lower Bollinger Band
 - ML predicts bearish movement
 - 3% stop loss triggered
 - Price drops below 20-day SMA (trailing stop)
