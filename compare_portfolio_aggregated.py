@@ -127,8 +127,11 @@ def calculate_portfolio_stats(df, initial_capital, portfolio_name):
     peak = df['Total_Portfolio_Value'].cummax()
     drawdown = ((df['Total_Portfolio_Value'] - peak) / peak * 100).min()
     
-    # Calculate volatility (annualized)
+    # Calculate daily standard deviation
     returns = df['Total_Portfolio_Value'].pct_change().dropna()
+    std_dev = (returns * 100).std()  # Daily std dev as percentage
+    
+    # Calculate volatility (annualized)
     volatility = returns.std() * (252 ** 0.5) * 100
     
     # Calculate Sharpe ratio (assuming 0% risk-free rate)
@@ -148,6 +151,7 @@ def calculate_portfolio_stats(df, initial_capital, portfolio_name):
         'Max_Gain_%': max_gain,
         'Max_Loss_%': max_loss,
         'Max_Drawdown_%': drawdown,
+        'Std_Dev_%': std_dev,
         'Volatility_%': volatility,
         'Sharpe_Ratio': sharpe,
         'Trading_Days': len(df)
@@ -268,12 +272,12 @@ def main():
         stats_df = stats_df.sort_values('Total_Return_%', ascending=False)
         
         # Print table
-        print(f"\n{'Portfolio':<30} {'Initial':<15} {'Final':<15} {'Return %':<12} {'Ann. Ret %':<12} {'Max DD %':<12} {'Sharpe':<10}")
-        print("-" * 110)
+        print(f"\n{'Portfolio':<30} {'Initial':<15} {'Final':<15} {'Return %':<12} {'Ann. Ret %':<12} {'Max DD %':<12} {'Std Dev %':<12} {'Sharpe':<10}")
+        print("-" * 125)
         for _, row in stats_df.iterrows():
             print(f"{row['Portfolio']:<30} ${row['Initial_Value']:>13,.0f} ${row['Final_Value']:>13,.0f} "
                   f"{row['Total_Return_%']:>10.2f}% {row['Annualized_Return_%']:>10.2f}% "
-                  f"{row['Max_Drawdown_%']:>10.2f}% {row['Sharpe_Ratio']:>8.2f}")
+                  f"{row['Max_Drawdown_%']:>10.2f}% {row['Std_Dev_%']:>10.2f}% {row['Sharpe_Ratio']:>8.2f}")
         
         # Save statistics to CSV
         stats_path = os.path.join(args.output, 'aggregated_portfolio_stats.csv')
@@ -292,6 +296,7 @@ def main():
             print(f"  Max Gain:          {row['Max_Gain_%']:>8.2f}%")
             print(f"  Max Loss:          {row['Max_Loss_%']:>8.2f}%")
             print(f"  Max Drawdown:      {row['Max_Drawdown_%']:>8.2f}%")
+            print(f"  Std Dev (daily):   {row['Std_Dev_%']:>8.2f}%")
             print(f"  Volatility:        {row['Volatility_%']:>8.2f}%")
             print(f"  Sharpe Ratio:      {row['Sharpe_Ratio']:>8.2f}")
             print(f"  Final Value:       ${row['Final_Value']:>,.2f}")

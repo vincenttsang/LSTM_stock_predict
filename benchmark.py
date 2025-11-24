@@ -73,6 +73,10 @@ def calculate_buy_and_hold_benchmark(ticker, start_date, end_date, initial_capit
     portfolio_df['Drawdown'] = (portfolio_df['Portfolio_Value'] - portfolio_df['Peak']) / portfolio_df['Peak'] * 100
     max_drawdown_pct = portfolio_df['Drawdown'].min()
     
+    # Calculate standard deviation of daily returns
+    portfolio_df['Daily_Return'] = portfolio_df['Portfolio_Value'].pct_change() * 100
+    std_dev = portfolio_df['Daily_Return'].std()
+    
     # Calculate annualized return
     days = (portfolio_df.iloc[-1]['Date'] - portfolio_df.iloc[0]['Date']).days
     years = days / 365.25
@@ -93,6 +97,7 @@ def calculate_buy_and_hold_benchmark(ticker, start_date, end_date, initial_capit
         'total_return_pct': total_return_pct,
         'annualized_return_pct': annualized_return,
         'max_drawdown_pct': max_drawdown_pct,
+        'std_dev': std_dev,
         'trading_days': len(portfolio_df)
     }
     
@@ -141,6 +146,7 @@ def main():
     print(f"Total Return:         {summary['total_return_pct']:.2f}%")
     print(f"Annualized Return:    {summary['annualized_return_pct']:.2f}%")
     print(f"Max Drawdown:         {summary['max_drawdown_pct']:.2f}%")
+    print(f"Std Dev (daily):      {summary['std_dev']:.2f}%")
     print(f"Trading Days:         {summary['trading_days']}")
     
     # Save results

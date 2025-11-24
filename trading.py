@@ -270,6 +270,10 @@ class TradingStrategy:
         portfolio_df['Drawdown'] = (portfolio_df['Portfolio_Value'] - portfolio_df['Peak']) / portfolio_df['Peak'] * 100
         max_drawdown = portfolio_df['Drawdown'].min()
         
+        # Calculate standard deviation of daily returns
+        portfolio_df['Daily_Return'] = portfolio_df['Portfolio_Value'].pct_change() * 100
+        std_dev = portfolio_df['Daily_Return'].std()
+        
         # Trade statistics
         if len(trades_df) > 0:
             buy_trades = trades_df[trades_df['Action'] == 'BUY']
@@ -297,6 +301,7 @@ class TradingStrategy:
             'final_value': final_value,
             'total_return_pct': total_return,
             'max_drawdown_pct': max_drawdown,
+            'std_dev': std_dev,
             'total_trades': total_trades,
             'winning_trades': winning_count,
             'losing_trades': losing_count,
@@ -609,6 +614,7 @@ def main():
             print(f"Final Value:          ${report['final_value']:,.2f}")
             print(f"Total Return:         {report['total_return_pct']:.2f}%")
             print(f"Max Drawdown:         {report['max_drawdown_pct']:.2f}%")
+            print(f"Std Dev (daily):      {report['std_dev']:.2f}%")
             print(f"Total Trades:         {report['total_trades']}")
             print(f"Winning Trades:       {report['winning_trades']}")
             print(f"Losing Trades:        {report['losing_trades']}")

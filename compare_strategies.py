@@ -129,8 +129,11 @@ def generate_statistics_table(all_data, initial_capital):
         peak = strategy_df['Portfolio_Value'].cummax()
         drawdown = ((strategy_df['Portfolio_Value'] - peak) / peak * 100).min()
         
-        # Calculate volatility
+        # Calculate daily standard deviation
         returns = strategy_df['Portfolio_Value'].pct_change().dropna()
+        std_dev = (returns * 100).std()  # Daily std dev as percentage
+        
+        # Calculate volatility
         volatility = returns.std() * (252 ** 0.5) * 100  # Annualized volatility
         
         stats.append({
@@ -140,6 +143,7 @@ def generate_statistics_table(all_data, initial_capital):
             'Max_Gain_%': max_gain,
             'Max_Loss_%': max_loss,
             'Max_Drawdown_%': drawdown,
+            'Std_Dev_%': std_dev,
             'Volatility_%': volatility
         })
     
@@ -207,12 +211,12 @@ def main():
     stats_df = generate_statistics_table(combined_df, args.capital)
     
     # Print table
-    print(f"\n{'Strategy':<35} {'Final Value':<15} {'Return %':<12} {'Max DD %':<12} {'Volatility %':<12}")
-    print("-" * 90)
+    print(f"\n{'Strategy':<35} {'Final Value':<15} {'Return %':<12} {'Max DD %':<12} {'Std Dev %':<12} {'Volatility %':<12}")
+    print("-" * 105)
     for _, row in stats_df.iterrows():
         print(f"{row['Strategy']:<35} ${row['Final_Value']:>13,.2f} "
               f"{row['Total_Return_%']:>10.2f}% {row['Max_Drawdown_%']:>10.2f}% "
-              f"{row['Volatility_%']:>10.2f}%")
+              f"{row['Std_Dev_%']:>10.2f}% {row['Volatility_%']:>10.2f}%")
     
     # Save statistics to CSV
     stats_path = os.path.join(args.output, 'strategy_comparison_stats.csv')
