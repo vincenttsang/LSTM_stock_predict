@@ -26,7 +26,7 @@ Require at least 2 indicators/ML aligning (up from 1) to maintain aggressiveness
 # Exit Rules (Sell/Close Long):
 Take profits on RSI >70 or MACD bearish crossover, or when price closes below the lower Bollinger Band.
 Accelerate exit if ML predicts a price decrease (bearish signal) even if indicators are mixed.
-Stop-loss: 3% below entry 
+Stop-loss: 5% below entry 
 Trailing stop: Use the 50-period SMA.
 # Risk Management:
 Portion size: 70% of portfolio
