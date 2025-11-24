@@ -49,7 +49,13 @@ preds = []
 
 print('Start Prediction...')
 with torch.no_grad():
-    start_pos = df_full.index.get_loc(test_start) - seq_len
+    # Use get_indexer with 'nearest' method to handle non-trading days (weekends/holidays)
+    test_start_idx = df_full.index.get_indexer([test_start], method='nearest')[0]
+    if test_start_idx == -1:
+        # If still not found, use the first available date after test_start
+        test_start_idx = df_full.index.searchsorted(test_start)
+    
+    start_pos = test_start_idx - seq_len
     for i in range(len(df_test)):
         window = scaler.transform(df_full)[start_pos + i : start_pos + i + seq_len]            
         inp = torch.tensor(window).unsqueeze(0).to(device)

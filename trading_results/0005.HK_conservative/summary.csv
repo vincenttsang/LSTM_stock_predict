@@ -1,2 +1,2 @@
-initial_capital,final_value,total_return_pct,max_drawdown_pct,total_trades,winning_trades,losing_trades,win_rate,avg_profit,avg_loss
-100000,100000.0,0.0,0.0,0,0,0,0,0,0
+initial_capital,final_value,total_return_pct,max_drawdown_pct,std_dev,total_trades,winning_trades,losing_trades,win_rate,avg_profit,avg_loss
+20000.0,21242.6001663208,6.213000831604004,-4.084923725507705,0.21448823989449467,1,1,0,100.0,1242.6001663208008,0

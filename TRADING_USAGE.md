@@ -112,7 +112,7 @@ trading_results/
 ## Strategy Details
 
 ### Conservative Strategy
-**Position Size:** 1% of portfolio  
+**Position Size:** 50% of portfolio  
 **Stop Loss:** 5% below entry  
 **Trailing Stop:** 50-day SMA  
 
@@ -130,7 +130,7 @@ trading_results/
 - Price drops below 50-day SMA (trailing stop)
 
 ### Aggressive Strategy
-**Position Size:** 3% of portfolio  
+**Position Size:** 70% of portfolio  
 **Stop Loss:** 3% below entry  
 **Trailing Stop:** 20-day SMA  
 
@@ -143,10 +143,10 @@ trading_results/
 **Exit Conditions:**
 - RSI > 70
 - MACD bearish crossover
-- Price closes below middle Bollinger Band
+- Price closes below lower Bollinger Band
 - ML predicts bearish movement
-- 3% stop loss triggered
-- Price drops below 20-day SMA (trailing stop)
+- 5% stop loss triggered
+- Price drops below 50-day SMA (trailing stop)
 
 ## Complete Workflow
 
