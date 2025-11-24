@@ -9,6 +9,7 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 import os
+import subprocess
 from ta.trend import SMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
@@ -41,7 +42,7 @@ class TradingStrategy:
         """Fetch stock data and calculate technical indicators"""
         # Fetch extra data for indicator calculation
         buffer_start = (datetime.strptime(self.start_date, '%Y-%m-%d') - timedelta(days=300)).strftime('%Y-%m-%d')
-        df = yf.download(self.ticker, start=buffer_start, end=self.end_date, progress=False)
+        df = yf.download(self.ticker, start=buffer_start, end=self.end_date, progress=False, auto_adjust=False)
         
         if df.empty:
             raise ValueError(f"No data available for {self.ticker}")
@@ -100,42 +101,56 @@ class TradingStrategy:
             self.df.rename(columns={'Random Forest': 'RF_prediction', 'Next Price': 'RF_actual'}, inplace=True)
     
     def _check_ml_bullish(self, row, prev_close):
-        """Check if ML models predict bullish movement"""
-        signals = 0
-        total = 0
+        """Check if ML models predict bullish movement for next day"""
+        lstm_bullish = False
+        rf_bullish = False
+        models_available = 0
         
-        # LSTM prediction (SMA50_diff)
+        # LSTM prediction (next day's SMA50_diff)
         if pd.notna(row.get('LSTM_prediction')):
-            total += 1
-            if row['LSTM_prediction'] > 0:  # Positive SMA50_diff means bullish
-                signals += 1
+            models_available += 1
+            if row['LSTM_prediction'] > 0:  # Positive next-day SMA50_diff means bullish
+                lstm_bullish = True
         
-        # Random Forest prediction
+        # Random Forest prediction (next day's price)
         if pd.notna(row.get('RF_prediction')):
-            total += 1
-            if row['RF_prediction'] > prev_close:  # Predicts higher price
-                signals += 1
+            models_available += 1
+            if row['RF_prediction'] > prev_close:  # Predicts higher next-day price
+                rf_bullish = True
         
-        return signals, total
+        # Require BOTH available models to agree
+        if models_available == 2:
+            return lstm_bullish and rf_bullish
+        elif models_available == 1:
+            return lstm_bullish or rf_bullish
+        else:
+            return False
     
     def _check_ml_bearish(self, row, current_price):
-        """Check if ML models predict bearish movement"""
-        signals = 0
-        total = 0
+        """Check if ML models predict bearish movement for next day"""
+        lstm_bearish = False
+        rf_bearish = False
+        models_available = 0
         
-        # LSTM prediction
+        # LSTM prediction (next day's SMA50_diff)
         if pd.notna(row.get('LSTM_prediction')):
-            total += 1
-            if row['LSTM_prediction'] < 0:  # Negative SMA50_diff means bearish
-                signals += 1
+            models_available += 1
+            if row['LSTM_prediction'] < 0:  # Negative next-day SMA50_diff means bearish
+                lstm_bearish = True
         
-        # Random Forest prediction
+        # Random Forest prediction (next day's price)
         if pd.notna(row.get('RF_prediction')):
-            total += 1
-            if row['RF_prediction'] < current_price:  # Predicts lower price
-                signals += 1
+            models_available += 1
+            if row['RF_prediction'] < current_price:  # Predicts lower next-day price
+                rf_bearish = True
         
-        return signals, total
+        # Require BOTH available models to agree
+        if models_available == 2:
+            return lstm_bearish and rf_bearish
+        elif models_available == 1:
+            return lstm_bearish or rf_bearish
+        else:
+            return False
     
     def check_entry_signals(self, row, prev_row):
         """Check for entry signals - to be overridden by subclasses"""
@@ -243,6 +258,10 @@ class TradingStrategy:
         portfolio_df['Drawdown'] = (portfolio_df['Portfolio_Value'] - portfolio_df['Peak']) / portfolio_df['Peak'] * 100
         max_drawdown = portfolio_df['Drawdown'].min()
         
+        # Calculate standard deviation of daily returns
+        portfolio_df['Daily_Return'] = portfolio_df['Portfolio_Value'].pct_change() * 100
+        std_dev = portfolio_df['Daily_Return'].std()
+        
         # Trade statistics
         if len(trades_df) > 0:
             buy_trades = trades_df[trades_df['Action'] == 'BUY']
@@ -270,6 +289,7 @@ class TradingStrategy:
             'final_value': final_value,
             'total_return_pct': total_return,
             'max_drawdown_pct': max_drawdown,
+            'std_dev': std_dev,
             'total_trades': total_trades,
             'winning_trades': winning_count,
             'losing_trades': losing_count,
@@ -285,7 +305,7 @@ class ConservativeStrategy(TradingStrategy):
     """Conservative trading strategy"""
     
     def __init__(self, *args, **kwargs):
-        self.position_size = 0.01  # 1% of portfolio
+        self.position_size = 0.50  # 50% of portfolio
         self.stop_loss_pct = 0.05  # 5% stop loss
         self.trailing_stop_sma = 'SMA50'
         super().__init__(*args, **kwargs)
@@ -296,7 +316,7 @@ class ConservativeStrategy(TradingStrategy):
         1. Trend: Price > 200-day SMA and Price > 50-day SMA
         2. MACD: crosses below zero first, then crosses above signal with positive histogram
         3. Oversold: RSI < 40 or price touches lower Bollinger Band
-        4. ML: predicts price increase
+        4. ML: predicts next-day price increase
         """
         signals = []
         
@@ -323,9 +343,8 @@ class ConservativeStrategy(TradingStrategy):
         elif pd.notna(row['BB_lower']) and row['Close'] <= row['BB_lower'] * 1.01:  # Within 1% of lower band
             signals.append('BB_oversold')
         
-        # 4. ML confirmation
-        ml_bullish, ml_total = self._check_ml_bullish(row, prev_row['Close'])
-        if ml_total > 0 and ml_bullish >= ml_total * 0.5:  # At least 50% of ML models agree
+        # 4. ML confirmation (both models must agree)
+        if self._check_ml_bullish(row, prev_row['Close']):
             signals.append('ML_bullish')
         
         # Conservative: Need at least 3 signals including ML
@@ -367,7 +386,7 @@ class ConservativeStrategy(TradingStrategy):
         if (pd.notna(prev_row['MACD']) and pd.notna(row['MACD']) and 
             pd.notna(prev_row['MACD_signal']) and pd.notna(row['MACD_signal'])):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
-                return True, "MACD Bearish Crossover"
+                signals.append('MACD_bearish')
         
         # 6. ML bearish signal (both models must agree)
         if self._check_ml_bearish(row, row['Close']):
@@ -384,9 +403,9 @@ class AggressiveStrategy(TradingStrategy):
     """Aggressive trading strategy"""
     
     def __init__(self, *args, **kwargs):
-        self.position_size = 0.03  # 3% of portfolio
-        self.stop_loss_pct = 0.03  # 3% stop loss
-        self.trailing_stop_sma = 'SMA20'
+        self.position_size = 0.70  # 70% of portfolio
+        self.stop_loss_pct = 0.05  # 5% stop loss
+        self.trailing_stop_sma = 'SMA50'
         super().__init__(*args, **kwargs)
     
     def check_entry_signals(self, row, prev_row):
@@ -418,9 +437,8 @@ class AggressiveStrategy(TradingStrategy):
         elif pd.notna(row['BB_lower']) and row['Close'] <= row['BB_lower'] * 1.02:
             signals.append('BB_oversold')
         
-        # 4. ML confirmation
-        ml_bullish, ml_total = self._check_ml_bullish(row, prev_row['Close'])
-        if ml_total > 0 and ml_bullish >= ml_total * 0.5:
+        # 4. ML confirmation (both models must agree)
+        if self._check_ml_bullish(row, prev_row['Close']):
             signals.append('ML_bullish')
         
         # Aggressive: Need at least 2 signals including ML
@@ -452,13 +470,13 @@ class AggressiveStrategy(TradingStrategy):
         
         # 3. Overbought RSI
         if pd.notna(row['RSI']) and row['RSI'] > 70:
-            return True, "Take Profit (RSI>70)"
+            signals.append('RSI_overbought')
         
         # 4. MACD bearish crossover
         if (pd.notna(prev_row['MACD']) and pd.notna(row['MACD']) and 
             pd.notna(prev_row['MACD_signal']) and pd.notna(row['MACD_signal'])):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
-                return True, "MACD Bearish Crossover"
+                signals.append('MACD_bearish')
         
         # 5. Price below lower BB
         if pd.notna(row['BB_lower']) and row['Close'] < row['BB_lower']:
@@ -475,21 +493,52 @@ class AggressiveStrategy(TradingStrategy):
         return False, ""
 
 
-def load_predictions(ticker, lstm_path=None, rf_path=None):
+def load_predictions(ticker, start_date, end_date, lstm_path=None, rf_path=None, generate_lstm=True):
     """Load LSTM and Random Forest predictions"""
     lstm_pred = None
     rf_pred = None
     
-    # Load LSTM predictions
+    # Load or generate LSTM predictions
     if lstm_path and os.path.exists(lstm_path):
-        lstm_pred = pd.read_csv(lstm_path, index_col=0, parse_dates=True)
+        lstm_pred = pd.read_csv(lstm_path, index_col=0)
+        lstm_pred.index = pd.to_datetime(lstm_pred.index, format='%Y-%m-%d', errors='coerce')
         print(f"Loaded LSTM predictions from {lstm_path}")
+    elif generate_lstm:
+        # Generate LSTM predictions by calling inference.py
+        print(f"\nGenerating LSTM predictions for {ticker}...")
+        default_lstm = f"predictions/{ticker}_predict.csv"
+        
+        try:
+            # Call inference.py with appropriate parameters
+            cmd = [
+                'python', 'inference.py',
+                '--ticker', ticker,
+                '--target_col', 'SMA50_diff',
+                '--start', start_date,
+                '--end', end_date
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            print("LSTM prediction generation completed.")
+            
+            # Load the generated predictions
+            if os.path.exists(default_lstm):
+                lstm_pred = pd.read_csv(default_lstm, index_col=0)
+                lstm_pred.index = pd.to_datetime(lstm_pred.index, format='%Y-%m-%d', errors='coerce')
+                print(f"Loaded generated LSTM predictions from {default_lstm}")
+            else:
+                print(f"Warning: Expected LSTM predictions file not found at {default_lstm}")
+        except subprocess.CalledProcessError as e:
+            print(f"Error generating LSTM predictions: {e}")
+            print(f"stderr: {e.stderr}")
+        except Exception as e:
+            print(f"Error running inference.py: {e}")
     else:
-        # Try default path
+        # Try default path without generation
         default_lstm = f"predictions/{ticker}_predict.csv"
         if os.path.exists(default_lstm):
             lstm_pred = pd.read_csv(default_lstm, index_col=0)
-            lstm_pred.index = pd.to_datetime(lstm_pred.index, errors='coerce')
+            lstm_pred.index = pd.to_datetime(lstm_pred.index, format='%Y-%m-%d', errors='coerce')
             print(f"Loaded LSTM predictions from {default_lstm}")
     
     # Load Random Forest predictions (skip metadata rows)
@@ -516,6 +565,7 @@ def main():
     parser.add_argument('--capital', type=float, default=100000, help='Initial capital')
     parser.add_argument('--lstm_path', type=str, default=None, help='Path to LSTM predictions CSV')
     parser.add_argument('--rf_path', type=str, default=None, help='Path to Random Forest predictions CSV')
+    parser.add_argument('--no_generate_lstm', action='store_true', help='Skip automatic LSTM generation (only load existing)')
     parser.add_argument('--output', type=str, default='trading_results', help='Output directory for results')
     
     args = parser.parse_args()
@@ -526,8 +576,15 @@ def main():
     print(f"Initial Capital: ${args.capital:,.2f}")
     print("="*80)
     
-    # Load predictions
-    lstm_pred, rf_pred = load_predictions(args.ticker, args.lstm_path, args.rf_path)
+    # Load predictions (with automatic generation if needed)
+    lstm_pred, rf_pred = load_predictions(
+        ticker=args.ticker,
+        start_date=args.start,
+        end_date=args.end,
+        lstm_path=args.lstm_path,
+        rf_path=args.rf_path,
+        generate_lstm=not args.no_generate_lstm
+    )
     
     if lstm_pred is None and rf_pred is None:
         print("\nWARNING: No ML predictions found. Trading will be based on technical indicators only.")
@@ -567,6 +624,7 @@ def main():
             print(f"Final Value:          ${report['final_value']:,.2f}")
             print(f"Total Return:         {report['total_return_pct']:.2f}%")
             print(f"Max Drawdown:         {report['max_drawdown_pct']:.2f}%")
+            print(f"Std Dev (daily):      {report['std_dev']:.2f}%")
             print(f"Total Trades:         {report['total_trades']}")
             print(f"Winning Trades:       {report['winning_trades']}")
             print(f"Losing Trades:        {report['losing_trades']}")
