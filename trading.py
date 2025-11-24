@@ -224,19 +224,7 @@ class TradingStrategy:
             
             # Check for exit signals if we have a position
             if self.position > 0:
-                # Check stop loss
-                if current_price <= self.entry_price * (1 - self.stop_loss_pct):
-                    self.execute_trade(date, 'SELL', current_price, 'Stop Loss')
-                    prev_row = row
-                    continue
-                
-                # Check trailing stop
-                if pd.notna(row[self.trailing_stop_sma]) and current_price < row[self.trailing_stop_sma]:
-                    self.execute_trade(date, 'SELL', current_price, 'Trailing Stop')
-                    prev_row = row
-                    continue
-                
-                # Check exit signals
+                # Check exit signals (including stop loss and trailing stop)
                 exit_signal, reason = self.check_exit_signals(row, prev_row)
                 if exit_signal:
                     self.execute_trade(date, 'SELL', current_price, reason)
@@ -368,28 +356,39 @@ class ConservativeStrategy(TradingStrategy):
     def check_exit_signals(self, row, prev_row):
         """
         Conservative Exit: Require at least 3 indicators + ML confirmation
-        1. Overbought: RSI > 70
-        2. Upper BB: price hits upper Bollinger Band
-        3. MACD bearish crossover
-        4. ML predicts next-day decrease (both models must agree)
+        1. Stop Loss: price <= entry * (1 - stop_loss_pct)
+        2. Trailing Stop: price < trailing stop SMA
+        3. Overbought: RSI > 70
+        4. Upper BB: price hits upper Bollinger Band
+        5. MACD bearish crossover
+        6. ML predicts next-day decrease (both models must agree)
         """
         signals = []
+        current_price = row['Close']
         
-        # 1. Overbought RSI
+        # 1. Stop Loss
+        if current_price <= self.entry_price * (1 - self.stop_loss_pct):
+            signals.append('Stop_Loss')
+        
+        # 2. Trailing Stop
+        if pd.notna(row[self.trailing_stop_sma]) and current_price < row[self.trailing_stop_sma]:
+            signals.append('Trailing_Stop')
+        
+        # 3. Overbought RSI
         if pd.notna(row['RSI']) and row['RSI'] > 70:
             signals.append('RSI_overbought')
         
-        # 2. Upper Bollinger Band
+        # 4. Upper Bollinger Band
         if pd.notna(row['BB_upper']) and row['Close'] >= row['BB_upper'] * 0.99:
             signals.append('BB_upper')
         
-        # 3. MACD bearish crossover
+        # 5. MACD bearish crossover
         if (pd.notna(prev_row['MACD']) and pd.notna(row['MACD']) and 
             pd.notna(prev_row['MACD_signal']) and pd.notna(row['MACD_signal'])):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
                 signals.append('MACD_bearish')
         
-        # 4. ML bearish signal (both models must agree)
+        # 6. ML bearish signal (both models must agree)
         if self._check_ml_bearish(row, row['Close']):
             signals.append('ML_bearish')
         
@@ -451,28 +450,39 @@ class AggressiveStrategy(TradingStrategy):
     def check_exit_signals(self, row, prev_row):
         """
         Aggressive Exit: Require at least 2 indicators + ML confirmation
-        1. RSI > 70 (overbought)
-        2. MACD bearish crossover
-        3. Price closes below lower Bollinger Band
-        4. ML predicts next-day decrease (both models must agree)
+        1. Stop Loss: price <= entry * (1 - stop_loss_pct)
+        2. Trailing Stop: price < trailing stop SMA
+        3. RSI > 70 (overbought)
+        4. MACD bearish crossover
+        5. Price closes below lower Bollinger Band
+        6. ML predicts next-day decrease (both models must agree)
         """
         signals = []
+        current_price = row['Close']
         
-        # 1. Overbought RSI
+        # 1. Stop Loss
+        if current_price <= self.entry_price * (1 - self.stop_loss_pct):
+            signals.append('Stop_Loss')
+        
+        # 2. Trailing Stop
+        if pd.notna(row[self.trailing_stop_sma]) and current_price < row[self.trailing_stop_sma]:
+            signals.append('Trailing_Stop')
+        
+        # 3. Overbought RSI
         if pd.notna(row['RSI']) and row['RSI'] > 70:
             signals.append('RSI_overbought')
         
-        # 2. MACD bearish crossover
+        # 4. MACD bearish crossover
         if (pd.notna(prev_row['MACD']) and pd.notna(row['MACD']) and 
             pd.notna(prev_row['MACD_signal']) and pd.notna(row['MACD_signal'])):
             if prev_row['MACD'] >= prev_row['MACD_signal'] and row['MACD'] < row['MACD_signal']:
                 signals.append('MACD_bearish')
         
-        # 3. Price below lower BB
+        # 5. Price below lower BB
         if pd.notna(row['BB_lower']) and row['Close'] < row['BB_lower']:
             signals.append('BB_lower')
         
-        # 4. ML bearish signal (both models must agree)
+        # 6. ML bearish signal (both models must agree)
         if self._check_ml_bearish(row, row['Close']):
             signals.append('ML_bearish')
         
